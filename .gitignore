@@ -1,0 +1,30 @@
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+*.swp
+*.swo
+*~
+
+# Build
+target/
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+*.log
+cp.txt
+
+# Java
+*.class
+*.jar
+*.war
+
+# Local files
+local.properties
+.env

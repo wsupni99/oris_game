@@ -77,7 +77,12 @@ Client:
 - Адаптивность: BorderPane/ VBox / HBox, привязки по ширине/высоте (bind), использование Scene и resizeable Stage; обновление Canvas через перерисовку по данным с сервера в Platform.runLater.
 
 
-**Дедлайн:** Прототип к 20.12, финал к 25.12. Запуск: java -jar server.jar; java -jar client.jar IP.**
+**Дедлайн:** Прототип к 20.12, финал к 25.12. 
+
+- - -
+
+## Запуск
+```mvn javafx:run```
 
 - - -
 
