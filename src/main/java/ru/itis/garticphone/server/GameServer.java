@@ -10,8 +10,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,6 +19,10 @@ public class GameServer {
     private static final int PORT = 8080;
 
     private final Map<Socket, Player> players = new HashMap<>();
+    private final Map<Integer, GameState> rooms = new HashMap<>();
+    private final Map<Integer, String> secretWords = new HashMap<>();
+    private final Map<Integer, Set<Integer>> readyPlayers = new HashMap<>();
+
     private final ExecutorService executorService = Executors.newCachedThreadPool();
     private int nextPlayerId = 1;
 
@@ -69,6 +72,7 @@ public class GameServer {
             System.out.println("Client disconnected");
         } finally {
             if (player != null) {
+                handleLeave(player);
                 player.close();
                 synchronized (players) {
                     players.remove(player.getSocket());
@@ -86,29 +90,245 @@ public class GameServer {
             return;
         }
         switch (message.getType()) {
+            case JOIN:
+                handleJoin(player, message);
+                break;
             case CHAT:
-                broadcastChat(player, message.getPayload());
+                handleChat(player, message);
+                break;
+            case DRAW:
+                handleDraw(player, message);
+                break;
+            case GUESS:
+                handleGuess(player, message);
+                break;
+            case READY:
+                handleReady(player, message);
+                break;
+            case START:
+                handleStart(player, message);
+                break;
+            case TEXT_SUBMIT:
+                handleTextSubmit(player, message);
+                break;
+            case LEAVE:
+                handleLeave(player);
                 break;
             default:
                 break;
         }
     }
 
-    private void broadcastChat(Player from, String text) {
-        String payload = text == null ? "" : text;
+    private void handleJoin(Player player, Message message) {
+        int roomId = message.getRoomId();
+        String name = message.getPlayerName();
+
+        if (name != null && !name.isBlank()) {
+            player.setName(name);
+        }
+
+        GameState gameState;
+        synchronized (rooms) {
+            gameState = rooms.get(roomId);
+            if (gameState == null) {
+                gameState = new GameState(roomId, GameMode.GUESS_DRAW);
+                rooms.put(roomId, gameState);
+            }
+            gameState.addPlayer(player);
+        }
+
+        broadcastPlayersUpdate(gameState);
+    }
+
+    private void handleLeave(Player player) {
+        synchronized (rooms) {
+            for (GameState room : rooms.values()) {
+                if (room.getPlayers().contains(player)) {
+                    room.removePlayer(player);
+                    broadcastPlayersUpdate(room);
+                }
+            }
+        }
+    }
+
+    private void broadcastPlayersUpdate(GameState room) {
+        StringBuilder payload = new StringBuilder();
+        payload.append("[");
+        boolean first = true;
+        for (Player p : room.getPlayers()) {
+            if (!first) {
+                payload.append(",");
+            }
+            first = false;
+            payload.append("\"").append(escape(p.getName())).append("\"");
+        }
+        payload.append("]");
+
+        Message msg = new Message(
+                MessageType.CHAT,
+                room.getRoomId(),
+                0,
+                "SERVER",
+                payload.toString()
+        );
+
+        String json = toJson(msg);
+        for (Player p : room.getPlayers()) {
+            p.sendLine(json);
+        }
+    }
+
+    private void handleChat(Player from, Message message) {
+        int roomId = message.getRoomId();
+        GameState room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        String payload = message.getPayload() == null ? "" : message.getPayload();
         Message response = new Message(
                 MessageType.CHAT,
-                0,
+                roomId,
                 from.getId(),
                 from.getName(),
                 payload
         );
         String json = toJson(response);
-        synchronized (players) {
-            for (Player player : players.values()) {
+
+        for (Player player : room.getPlayers()) {
+            player.sendLine(json);
+        }
+    }
+
+    private void handleDraw(Player from, Message message) {
+        int roomId = message.getRoomId();
+        GameState room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        Message response = new Message(
+                MessageType.DRAW,
+                roomId,
+                from.getId(),
+                from.getName(),
+                message.getPayload()
+        );
+        String json = toJson(response);
+
+        for (Player player : room.getPlayers()) {
+            player.sendLine(json);
+        }
+    }
+
+    private void handleGuess(Player from, Message message) {
+        int roomId = message.getRoomId();
+        String guess = message.getPayload();
+        String secret = secretWords.get(roomId);
+        if (secret == null || guess == null) {
+            return;
+        }
+
+        if (secret.equalsIgnoreCase(guess.trim())) {
+            String payload = "{\"correctPlayer\":\"" + escape(from.getName()) +
+                    "\",\"word\":\"" + escape(secret) + "\",\"score\":1}";
+            Message correct = new Message(
+                    MessageType.CORRECT,
+                    roomId,
+                    from.getId(),
+                    from.getName(),
+                    payload
+            );
+
+            GameState room = rooms.get(roomId);
+            if (room == null) {
+                return;
+            }
+            String json = toJson(correct);
+            for (Player player : room.getPlayers()) {
                 player.sendLine(json);
             }
         }
+    }
+
+    private void handleReady(Player player, Message message) {
+        int roomId = message.getRoomId();
+        readyPlayers.computeIfAbsent(roomId, id -> new HashSet<>()).add(player.getId());
+        GameState room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        int total = room.getPlayers().size();
+        int ready = readyPlayers.get(roomId).size();
+        String payload = "{\"ready\":" + ready + ",\"total\":" + total + "}";
+
+        Message info = new Message(
+                MessageType.READY,
+                roomId,
+                player.getId(),
+                player.getName(),
+                payload
+        );
+        String json = toJson(info);
+        for (Player p : room.getPlayers()) {
+            p.sendLine(json);
+        }
+    }
+
+    private void handleStart(Player player, Message message) {
+        int roomId = message.getRoomId();
+        GameState room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        int roundDuration = 60;
+        room.setTimerSeconds(roundDuration);
+        room.resetRound();
+
+        String payload = "{\"roundDuration\":" + roundDuration +
+                ",\"totalPlayers\":" + room.getPlayers().size() +
+                ",\"stage\":1}";
+        Message start = new Message(
+                MessageType.START,
+                roomId,
+                player.getId(),
+                player.getName(),
+                payload
+        );
+        String json = toJson(start);
+        for (Player p : room.getPlayers()) {
+            p.sendLine(json);
+        }
+    }
+
+    private void handleTextSubmit(Player from, Message message) {
+        int roomId = message.getRoomId();
+        GameState room = rooms.get(roomId);
+        if (room == null) {
+            return;
+        }
+
+        List<Player> list = room.getPlayers();
+        int index = list.indexOf(from);
+        if (index == -1) {
+            return;
+        }
+        int nextIndex = (index + 1) % list.size();
+        Player next = list.get(nextIndex);
+
+        String payload = "{\"content\":\"" + escape(message.getPayload()) +
+                "\",\"contentType\":\"TEXT\",\"roundNumber\":" + room.getRound() + "}";
+        Message update = new Message(
+                MessageType.ROUND_UPDATE,
+                roomId,
+                from.getId(),
+                from.getName(),
+                payload
+        );
+        String json = toJson(update);
+        next.sendLine(json);
     }
 
     private void sendError(PrintWriter out, String code, String message) {
@@ -134,7 +354,6 @@ public class GameServer {
                 return null;
             }
             String[] parts = trimmed.substring(1, trimmed.length() - 1).split(",\"");
-
             for (String part : parts) {
                 String p = part.replace("\"", "");
                 String[] kv = p.split(":", 2);

@@ -11,5 +11,6 @@ public enum MessageType {
     TEXT_SUBMIT,
     ROUND_UPDATE,
     FINAL_CHAIN,
+    LEAVE,
     ERROR
 }

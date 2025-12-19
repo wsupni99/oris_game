@@ -4,6 +4,7 @@
 - [Протокол обмена данными](#протокол-обмена-данными)
 - [Git-шпаргалка](#шпаргалка-по-git)
 - [Сервер: базовая сеть и модель](#сервер-базовая-сеть-и-модель)
+- [Протокол и сообщения](#протокол-и-сообщения)
 ---
 
 ## Задание
@@ -302,3 +303,89 @@ Enum позволяет расширять список режимов без и
 Сервер в дальнейшем будет использовать `GameState` для реализации логики режимов, обработки READY/START, DRAW, GUESS, TEXT_SUBMIT/ROUND_UPDATE и финальных цепочек.
 
 ---
+
+## Протокол и сообщения
+
+### Формат JSON-сообщения
+
+Все сообщения между клиентом и сервером передаются в виде одной JSON-строки, описываемой классом `Message`:
+
+```json
+{
+"type": "CHAT",
+"roomId": 1,
+"playerId": 10,
+"playerName": "Danya",
+"payload": "hello"
+}
+```
+
+
+Поля:
+
+- `type` — тип сообщения (`MessageType`).
+- `roomId` — идентификатор комнаты.
+- `playerId` — идентификатор отправителя.
+- `playerName` — имя отправителя.
+- `payload` — содержимое сообщения (строка или вложенный JSON в виде строки).
+
+### Типы сообщений (MessageType)
+
+- JOIN – присоединение к комнате (roomId, playerName, режим в payload при необходимости)
+- CHAT – сообщение в чат комнаты (text в payload)
+- DRAW – данные мазка (координаты, цвет, толщина в payload)
+- GUESS – попытка угадать слово (guess в payload)
+- CORRECT – ответ сервера при правильном угадывании (correctPlayer, word, score в payload)
+- READY – статус готовности игрока в комнате
+- START – запуск раунда (roundDuration, totalPlayers, stage в payload)
+- TEXT_SUBMIT – отправка текста/описания в режиме “глухого телефона”
+- ROUND_UPDATE – переход этапа “глухого телефона” (content, contentType, roundNumber в payload)
+- FINAL_CHAIN – финальная цепочка режима 2 (chains в payload)
+- ERROR – ошибка протокола (code, message в payload)
+
+
+### Обработчики на сервере
+
+Сервер разбирает входящее сообщение и передаёт его в `routeMessage(Player, Message)`:
+
+```java
+private void routeMessage(Player player, Message message) {
+    if (message.getType() == null) {
+        return;
+    }
+    switch (message.getType()) {
+    case JOIN:
+        handleJoin(player, message);
+        break;
+    case CHAT:
+        handleChat(player, message);
+        break;
+    case DRAW:
+        handleDraw(player, message);
+        break;
+    case GUESS:
+        handleGuess(player, message);
+        break;
+    case READY:
+        handleReady(player, message);
+        break;
+    case START:
+        handleStart(player, message);
+        break;
+    case TEXT_SUBMIT:
+        handleTextSubmit(player, message);
+        break;
+    default:
+        break;
+    }
+}
+```
+Кратко:
+
+- `handleJoin` — добавляет игрока в `GameState` комнаты и рассылает обновлённый список игроков.
+- `handleChat` — рассылает сообщение чата всем игрокам комнаты.
+- `handleDraw` — ретранслирует данные мазка (`payload`) всем игрокам комнаты.
+- `handleGuess` — сравнивает текст `payload` с загаданным словом комнаты, при совпадении шлёт `CORRECT`.
+- `handleReady` — отмечает игрока как готового и шлёт информацию о количестве готовых/всего.
+- `handleStart` — инициализирует раунд (таймер, номер раунда) и рассылает `START`.
+- `handleTextSubmit` — в упрощённом виде пересылает текст следующему игроку по кругу с `ROUND_UPDATE`.
