@@ -23,6 +23,16 @@ public class Player {
         this.out = new PrintWriter(socket.getOutputStream(), true);
     }
 
+    // Для тестов конструктор без сокета
+    public Player(int id, String name) {
+        this.id = id;
+        this.name = name;
+        this.socket = null;
+        this.state = PlayerState.CONNECTED;
+        this.in = null;
+        this.out = null;
+    }
+
     public int getId() {
         return id;
     }
