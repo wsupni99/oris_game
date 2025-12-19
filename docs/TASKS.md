@@ -19,7 +19,7 @@
 ### Блок: Протокол и сообщения
 - [x] Определить enum MessageType (JOIN, CHAT, DRAW, GUESS, READY, START, TEXT_SUBMIT, ROUND_UPDATE, FINAL_CHAIN, ERROR)
 - [x] Описать формат JSON-сообщений (type, roomId, payload)
-- [ ] Написать парсер/обёртку над ObjectInputStream/ObjectOutputStream для JSON
+- [x] Написать парсер/обёртку над ObjectInputStream/ObjectOutputStream для JSON
 - [ ] Обработчик JOIN/LEAVE (подключение, отключение, рассылка обновлённого списка игроков)
 - [ ] Обработчик CHAT (широковещательно в комнату)
 - [ ] Обработчик DRAW (ретрансляция мазков всем игрокам комнаты)
