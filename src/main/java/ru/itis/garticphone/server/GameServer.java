@@ -10,24 +10,50 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
+// TODO: Управление логикой входа, выбора режима, ожидания, готовности и старта
 public class GameServer {
-
     private static final int PORT = 8080;
-
     private final Map<Socket, Player> players = new HashMap<>();
     private final Map<Integer, GameState> rooms = new HashMap<>();
     private final Map<Integer, String> secretWords = new HashMap<>();
     private final Map<Integer, Set<Integer>> readyPlayers = new HashMap<>();
-    private final List<String> words = Arrays.asList("кот", "дом", "дерево", "машина", "солнце");
+    private final List<String> words = new ArrayList<>();
     private final ExecutorService executorService = Executors.newCachedThreadPool();
     private final ScheduledExecutorService roundScheduler = Executors.newScheduledThreadPool(1);
-    private int nextPlayerId = 1;
+
+    public GameServer() {
+        loadWords();
+    }
+
+    private void loadWords() {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(
+                        Objects.requireNonNull(
+                                GameServer.class.getResourceAsStream("/words.txt")
+                        ),
+                        StandardCharsets.UTF_8
+                )
+        )) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty()) {
+                    words.add(trimmed);
+                }
+            }
+        } catch (Exception e) {
+            words.clear();
+            words.addAll(Arrays.asList("кот", "дом", "дерево", "машина", "солнце"));
+        }
+    }
+
+
 
     public static void main(String[] args) {
         new GameServer().start();
@@ -85,6 +111,7 @@ public class GameServer {
         }
     }
 
+    private int nextPlayerId = 1;
     private int getNextPlayerId() {
         return nextPlayerId++;
     }

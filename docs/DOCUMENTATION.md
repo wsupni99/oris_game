@@ -280,8 +280,8 @@ Client:
 
 `GameMode` описывает режим комнаты:
 
-- `GUESS_DRAW` — режим «Угадай, что рисую».
-- `TELEPHONE` — режим «Глухой телефон».
+- `GUESS_DRAWING` — режим «Угадай, что рисую».
+- `DEAF_PHONE` — режим «Глухой телефон».
 
 Enum позволяет расширять список режимов без изменения сигнатур.
 
@@ -341,7 +341,7 @@ Enum позволяет расширять список режимов без и
 - START – запуск раунда (roundDuration, totalPlayers, stage в payload)
 - TEXT_SUBMIT – отправка текста/описания в режиме “глухого телефона”
 - ROUND_UPDATE – переход этапа “глухого телефона” (content, contentType, roundNumber в payload)
-- FINAL_CHAIN – финальная цепочка режима 2 (chains в payload)
+- FINAL_CHAIN — финальная цепочка режима 2 (в реализации сервер шлёт ROUND_UPDATE с contentType="FINAL_CHAIN" и полем chain в payload).
 - ERROR – ошибка протокола (code, message в payload)
 
 
@@ -397,52 +397,61 @@ private void routeMessage(Player player, Message message) {
 
 ### Структура серверной части
 
-- `GameState` — состояние одной комнаты: `roomId`, `mode`, список игроков, номер раунда `round`, таймер `timerSeconds`, а также `chains` для режима «глухой телефон».
-- `GameServer` — точка входа, хранит `Map<Integer, GameState> rooms`, секретные слова `secretWords`, готовность игроков `readyPlayers`, и планировщик раундов `ScheduledExecutorService roundScheduler`.
-- `ChainStep` — один шаг цепочки режима 2: либо текст, либо рисунок (байты/base64).
+- `GameState` — состояние одной комнаты: `roomId`, `mode` (`GUESS_DRAWING`/`DEAF_PHONE`), список игроков, номер раунда `round`, таймер `timerSeconds`, а также `chains: Map<Integer, List<ChainStep>>` для режима «глухой телефон».
+- `GameServer` — точка входа, хранит `Map<Integer, GameState> rooms`, секретные слова `secretWords`, готовность игроков `readyPlayers`, список слов `words`, планировщик раундов `ScheduledExecutorService roundScheduler` и методы обработки всех типов сообщений.
+- `ChainStep` — один шаг цепочки режима 2: либо текст (`text`), либо рисунок (`drawing` в байтах), признак шага хранится в `isTextStep`.
+
 
 ### Режим 1: «Угадай что рисую»
 
-- При `JOIN` сервер создаёт `GameState` с режимом `GameMode.GUESS_DRAWING`, добавляет игрока в список комнаты.
-- При `START` в `handleStart` сервер:
-    - задаёт `roundDuration` и `timerSeconds`;
-    - генерирует слово через `generateWord()` и сохраняет в `secretWords[roomId]`;
-    - рассылает игрокам сообщение `START` с длительностью раунда и количеством игроков;
-    - планирует окончание раунда через `roundScheduler.schedule(...)`.
-- При `GUESS` в `handleGuess` сервер сравнивает `payload` (guess) с секретным словом комнаты:
-    - при совпадении шлёт `CORRECT` всем игрокам комнаты;
-    - может досрочно завершить раунд вызовом `endRound(roomId)`.
+- При `JOIN` в `handleJoin` сервер создаёт при необходимости `GameState(roomId, GameMode.GUESS_DRAWING)`, кладёт его в `rooms` и добавляет игрока в комнату.
+- При `START` в `handleStart` при режиме `GUESS_DRAWING` сервер:
+    - задаёт длительность раунда `roundDuration`, сохраняет её в `room.setTimerSeconds(roundDuration)` и сбрасывает номер раунда `room.resetRound()`;
+    - выбирает слово через `generateWord()` (из списка, загруженного из файла) и сохраняет в `secretWords.put(roomId, word)`;
+    - рассылает всем игрокам сообщение `START` с полями `roundDuration`, `totalPlayers`, `stage`;
+    - запускает таймер раунда через `scheduleRoundEnd(roomId, roundDuration)`, который планирует вызов `endRound(roomId)`.
+- При `GUESS` в `handleGuess` сервер:
+    - достаёт секретное слово по `roomId` из `secretWords` и сравнивает его с `payload` (игнор регистра, `trim`);
+    - при пустом слове/угадывании отправляет `ERROR` с кодом `400`; при совпадении рассылает всем игрокам `CORRECT` с информацией об угадавшем и слове, а затем досрочно завершает раунд вызовом `endRound(roomId)`.
+
 
 ### Режим 2: «Глухой телефон»
 
-- Комната создаётся с режимом `GameMode.DEAF_PHONE`, игроки отмечают готовность через `READY`.
-- При `START` сервер:
-    - сбрасывает номер раунда `round` и очищает `chains` в `GameState`;
-    - задаёт таймер раунда и рассылает `START` с длительностью и количеством игроков;
-    - запускает таймер раунда.
-- При `TEXT_SUBMIT`:
-    - сервер добавляет в `chains[startPlayerId]` новый `ChainStep` с текстом;
-    - пересылает текст следующему игроку по кругу сообщением `ROUND_UPDATE` с полями `content`, `contentType="TEXT"`, `roundNumber`.
-- При `DRAW` в режиме 2:
-    - сервер сохраняет рисунок в `chains[startPlayerId]` как `ChainStep` с байтовыми данными/строкой;
-    - при необходимости ретранслирует мазок другим игрокам.
-- По окончании раунда `endRound` вызывает `sendFinalChains(GameState room)`:
-    - для каждой цепочки в `chains` формируется массив шагов (`TEXT`/`DRAW` с base64‑данными);
-    - каждому игроку комнаты отправляется `FINAL_CHAIN` (реализовано через `MessageType.ROUND_UPDATE` с `contentType="FINAL_CHAIN"` и полем `chain`).
+- Комната для режима 2 создаётся как `GameState(roomId, GameMode.DEAF_PHONE)`, игроки заходят через `JOIN`, а готовность отмечают сообщениями `READY` (учитывается в `readyPlayers`).
+- При `START` в режиме `DEAF_PHONE` сервер:
+    - сбрасывает номер раунда `room.resetRound()` и очищает цепочки `room.clearChains()`;
+    - задаёт `roundDuration`, сохраняет его в состоянии комнаты и рассылает `START` с длительностью и количеством игроков;
+    - запускает таймер раунда через `scheduleRoundEnd`.
+- При `TEXT_SUBMIT` в режиме `DEAF_PHONE`:
+    - сервер проверяет наличие комнаты, режим `DEAF_PHONE` и непустой текст, иначе шлёт `ERROR` с кодами `404`/`400`;
+    - добавляет новый `ChainStep(message.getPayload())` в `chains[from.getId()]`;
+    - определяет следующего игрока по кругу и отправляет ему `ROUND_UPDATE` с `content` (текст), `contentType="TEXT"` и `roundNumber` комнаты.
+- При `DRAW` в режиме `DEAF_PHONE`:
+    - проверяется существование комнаты и режим, пустой `payload` даёт `ERROR` с кодом `400` и сообщением «Пустой рисунок»;
+    - в `chains[from.getId()]` добавляется `ChainStep(message.getPayload().getBytes())`;
+    - отдельно всем игрокам рассылается `DRAW` с содержимым рисунка (для отображения мазков на клиентах).
+- По окончании раунда в режиме 2 `endRound` вызывает `sendFinalChains(room)`:
+    - берётся цепочка шагов из `room.getChains()` (в тестах — для одного автора), по ней строится JSON‑массив `chain` из объектов `{ "type": "TEXT"/"DRAW", "value": ... }`, для рисунков данные кодируются в base64;
+    - формируется `payload` вида `{"contentType":"FINAL_CHAIN","chain":[...]}`;
+    - каждому игроку комнаты отправляется одно сообщение `MessageType.ROUND_UPDATE` с этим `payload`, так что все получают полную последовательность шагов.
+
 
 ### Таймер раундов
 
-- Для всех комнат используется один `ScheduledExecutorService roundScheduler`.
-- В `handleStart` вызывается `scheduleRoundEnd(roomId, roundDuration)`, который планирует `endRound(roomId)` через указанное число секунд.
+- Используется один `ScheduledExecutorService roundScheduler`, создаваемый как `Executors.newScheduledThreadPool(1)` внутри `GameServer`.
+- В `handleStart` всегда вызывается `scheduleRoundEnd(roomId, roundDuration)`, который через `roundScheduler.schedule(() -> endRound(roomId), roundDuration, TimeUnit.SECONDS)` планирует завершение текущего раунда.
 - Метод `endRound`:
-    - для режима 1 рассылает финальную информацию по слову, если никто не угадал;
-    - для режима 2 собирает и рассылает `FINAL_CHAIN` по всем цепочкам комнаты.
+    - для `GUESS_DRAWING` рассылает `ROUND_UPDATE` с финальным словом всем игрокам, если оно было задано;
+    - для `DEAF_PHONE` вызывает `sendFinalChains(room)`, который собирает и рассылает финальные цепочки.
+
 
 ### Обработка ошибок протокола
 
 - Парсер `parseMessage`:
-    - проверяет, что строка является JSON‑объектом;
-    - безопасно разбирает поля `type`, `roomId`, `playerId`, `playerName`, `payload`;
-    - при неизвестном `type` или некорректных числовых полях возвращает `null`.
-- `handleClient` при `null` от `parseMessage` отправляет `ERROR` с кодом `400` и текстом «Некорректное сообщение».
-- В `routeMessage` при неизвестном `MessageType` сервер отправляет `ERROR` с кодом `400` и описанием «Неизвестный тип сообщения».
+    - проверяет, что строка — корректный JSON‑объект по формату `{...}`;
+    - разбирает поля `type`, `roomId`, `playerId`, `playerName`, `payload` и создаёт `Message`; при любой ошибке парсинга или неизвестном `type` возвращает `null`.
+- В `handleClient` при `message == null` отправляется `ERROR` с кодом `400` и текстом «Некорректное сообщение» через `sendError`.
+- В `routeMessage`:
+    - при `message.getType() == null` шлётся `ERROR` с кодом `400` и текстом «Тип сообщения не задан»;
+    - при неизвестном `MessageType` используется ветка `default`, которая отправляет `ERROR` с кодом `400` и текстом «Неизвестный тип сообщения: ...».
+- В хендлерах (`handleChat`, `handleDraw`, `handleGuess`, `handleReady`, `handleStart`, `handleTextSubmit`) проверяются существование комнаты, корректность режима и непустые данные, при нарушениях отправляется `ERROR` с кодами `404`/`400` и поясняющим сообщением в JSON‑payload (`code`, `message`).
