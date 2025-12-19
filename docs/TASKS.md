@@ -9,16 +9,16 @@
 
 ## Эпик: Сервер (Даня)
 
-### Блок: Базовая сеть и модель
-- [ ] Поднять ServerSocket (порт 8080, конфиг в properties)
-- [ ] Реализовать класс Player (id, имя, состояние, socket, потоки)
-- [ ] Реализовать GameState (roomId, режим, список игроков, раунд, таймер)
-- [ ] Сделать пул потоков ExecutorService для клиентов
-- [ ] Реализовать цикл приёма/отправки сообщений клиенту
+### ✅ Блок: Базовая сеть и модель
+- [x] Поднять ServerSocket (порт 8080, ~~конфиг в properties~~ без пропертис)
+- [x] Реализовать класс Player (id, имя, состояние, socket, потоки)
+- [x] Реализовать GameState (roomId, режим, список игроков, раунд, таймер)
+- [x] Сделать пул потоков ExecutorService для клиентов
+- [x] Реализовать цикл приёма/отправки сообщений клиенту
 
 ### Блок: Протокол и сообщения
-- [ ] Определить enum MessageType (JOIN, CHAT, DRAW, GUESS, READY, START, TEXT_SUBMIT, ROUND_UPDATE, FINAL_CHAIN, ERROR)
-- [ ] Описать формат JSON-сообщений (type, roomId, payload)
+- [x] Определить enum MessageType (JOIN, CHAT, DRAW, GUESS, READY, START, TEXT_SUBMIT, ROUND_UPDATE, FINAL_CHAIN, ERROR)
+- [x] Описать формат JSON-сообщений (type, roomId, payload)
 - [ ] Написать парсер/обёртку над ObjectInputStream/ObjectOutputStream для JSON
 - [ ] Обработчик JOIN/LEAVE (подключение, отключение, рассылка обновлённого списка игроков)
 - [ ] Обработчик CHAT (широковещательно в комнату)
