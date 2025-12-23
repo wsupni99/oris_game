@@ -172,12 +172,14 @@ public class GameServer {
         synchronized (rooms) {
             gameState = rooms.get(roomId);
             if (gameState == null) {
-                gameState = new GameState(roomId, GameMode.GUESS_DRAWING);
+                // Создаем комнату только при первом игроке
+                GameMode mode = GameMode.valueOf(message.getPayload());
+                gameState = new GameState(roomId, mode);
                 rooms.put(roomId, gameState);
+                gameState.setHost(player.getId()); // Первый игрок - хост
             }
             gameState.addPlayer(player);
         }
-
         broadcastPlayersUpdate(gameState);
     }
 
@@ -194,30 +196,24 @@ public class GameServer {
 
     private void broadcastPlayersUpdate(GameState room) {
         StringBuilder payload = new StringBuilder();
-        payload.append("[");
         boolean first = true;
+
         for (Player p : room.getPlayers()) {
-            if (!first) {
-                payload.append(",");
-            }
+            if (!first) payload.append(",");
             first = false;
-            payload.append("\"").append(escape(p.getName())).append("\"");
+            payload.append("\"").append(escape(p.getName())).append("\":");
+            payload.append(room.getReadyPlayers().contains(p.getId()));
         }
-        payload.append("]");
 
-        Message msg = new Message(
-                MessageType.CHAT,
-                room.getRoomId(),
-                0,
-                "SERVER",
-                payload.toString()
-        );
-
+        Message msg = new Message(MessageType.READY, room.getRoomId(), 0, "SERVER",
+                "{" + payload + "}");
         String json = toJson(msg);
+
         for (Player p : room.getPlayers()) {
             p.sendLine(json);
         }
     }
+
 
     private void handleChat(Player from, Message message) {
         int roomId = message.getRoomId();
@@ -308,39 +304,39 @@ public class GameServer {
 
     private void handleReady(Player player, Message message) {
         int roomId = message.getRoomId();
-        readyPlayers.computeIfAbsent(roomId, id -> new HashSet<>()).add(player.getId());
         GameState room = rooms.get(roomId);
         if (room == null) {
-            sendError(getWriter(player), "404", "Комната не найдена");
+            sendError(getWriter(player), "404", "Room not found");
             return;
         }
 
-        int total = room.getPlayers().size();
-        int ready = readyPlayers.get(roomId).size();
-        String payload = "{\"ready\":" + ready + ",\"total\":" + total + "}";
-
-        Message info = new Message(
-                MessageType.READY,
-                roomId,
-                player.getId(),
-                player.getName(),
-                payload
-        );
-        String json = toJson(info);
-        for (Player p : room.getPlayers()) {
-            p.sendLine(json);
-        }
+        room.toggleReady(player.getId());
+        broadcastPlayersUpdate(room);
     }
 
     private void handleStart(Player player, Message message) {
         int roomId = message.getRoomId();
         GameState room = rooms.get(roomId);
         if (room == null) {
-            sendError(getWriter(player), "404", "Комната не найдена");
+            sendError(getWriter(player), "404", "Room not found");
             return;
         }
 
-        int roundDuration = 60;
+        // КРИТИЧЕСКАЯ ПРОВЕРКА:
+        if (!room.isHost(player.getId())) {
+            sendError(getWriter(player), "403", "Only host can start game");
+            return;
+        }
+        if (!room.allReady()) {
+            sendError(getWriter(player), "412", "Not enough ready players");
+            return;
+        }
+
+        int roundDuration = 60; // по умолчанию
+        try {
+            roundDuration = Integer.parseInt(message.getPayload());
+        } catch (NumberFormatException ignored) {}
+
         room.setTimerSeconds(roundDuration);
         room.resetRound();
 
@@ -351,19 +347,14 @@ public class GameServer {
             room.clearChains();
         }
 
-        String payload = "{\"roundDuration\":" + roundDuration +
-                ",\"totalPlayers\":" + room.getPlayers().size() +
-                ",\"stage\":1}";
+        String payload = String.format("roundDuration:%d,totalPlayers:%d,stage:%s",
+                roundDuration, room.getPlayers().size(),
+                room.getMode() == GameMode.GUESS_DRAWING ? "DRAW" : "TEXT_SUBMIT");
 
-        Message start = new Message(
-                MessageType.START,
-                roomId,
-                player.getId(),
-                player.getName(),
-                payload
-        );
-
+        Message start = new Message(MessageType.START, roomId, player.getId(),
+                player.getName(), payload);
         String json = toJson(start);
+
         for (Player p : room.getPlayers()) {
             p.sendLine(json);
         }

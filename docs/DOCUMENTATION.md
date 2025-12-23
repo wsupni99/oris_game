@@ -6,6 +6,7 @@
 - [Сервер: базовая сеть и модель](#сервер-базовая-сеть-и-модель)
 - [Протокол и сообщения](#протокол-и-сообщения)
 - [Логика режимов и таймер раундов](#логика-режимов-и-таймер-раундов)
+- [ТЗ: Последовательность состояний](#тз-последовательность-состояний)
 ---
 
 ## Задание
@@ -455,3 +456,50 @@ private void routeMessage(Player player, Message message) {
     - при `message.getType() == null` шлётся `ERROR` с кодом `400` и текстом «Тип сообщения не задан»;
     - при неизвестном `MessageType` используется ветка `default`, которая отправляет `ERROR` с кодом `400` и текстом «Неизвестный тип сообщения: ...».
 - В хендлерах (`handleChat`, `handleDraw`, `handleGuess`, `handleReady`, `handleStart`, `handleTextSubmit`) проверяются существование комнаты, корректность режима и непустые данные, при нарушениях отправляется `ERROR` с кодами `404`/`400` и поясняющим сообщением в JSON‑payload (`code`, `message`).
+
+---
+
+## ТЗ: Последовательность состояний
+### Главный экран (Lobby)
+
+- Две колонки: "Глухой телефон" (min=4), "Угадайка" (min=2).
+- Кнопка "Создать комнату" → отправка JOIN {gameMode, isHost=true}, roomId генерирует сервер.
+- Показывать список комнат (broadcast ROOMS_UPDATE).
+
+### Ожидание игроков (InLobby)
+
+- UI: список игроков, кнопка READY (toggle), у админа - START (серый до allReady()).
+- JOIN: добавить в GameState.players, broadcast PLAYER_JOIN {name, ready=false}.
+- READY: toggle в readyPlayers, broadcast PLAYER_READY {playerId, ready=true/false}.
+- START (только админ): проверка allReady(), отправка START {roundDuration=60, totalPlayers, stage="DRAW/TEXTSUBMIT"} всем в комнате.
+
+
+### Угадайка (GUESSDRAWING)
+
+1. START → всем: экран админа (Canvas + таймер), secretWord генерирует сервер (словарь в GameServer).
+2. Админ рисует (DRAW broadcast), все видят чат + поле GUESS.
+3. GUESS → проверка equalsIgnoreCase(secretWord) → CORRECT {correctPlayer, word}, endRound().
+4. Админ: кнопка "Пропустить" → endRound(). После: nextRound() или конец при wordsLeft==0 → главная.
+5. endRound(): broadcast ROUNDUPDATE {stage="GUESS_RESULT", content=word}, таймер 10с → DRAW.
+
+### Глухой телефон (DEAFPHONE)
+
+1. START → всем: поле TEXTSUBMIT (30с таймер), кнопка "Готово" → сохранить в chains[playerId] = ChainStep{text, isTextStep=true}.
+2. Все сдали → broadcast ROUNDUPDATE {stage="DRAW", content=предыдущий текст (циклически), roundNumber}, Canvas + 60с.
+3. DRAW → strokes в chains[playerId].drawing (base64), кнопка "Готово" по таймеру/allReady.
+4. Круг завершен → FINALCHAIN {chains: Map[playerId -> List<ChainStep>]}, таблица: player | text1 -> drawing1 -> text2 -> ...
+5. Админ: "Играть еще" → resetRound(), "Выйти" → всех в лобби.
+
+## Минимальные изменения кода
+
+- GameState: + `Set<Integer> readyPlayers`, `boolean hasHost`, `int minPlayers`, `boolean allReady()`.
+- GameServer: handleREADY/START с проверками, generateRoomId(), broadcastStatus().
+- MessageType: добавить ROOMS_UPDATE, PLAYER_JOIN/LEAVE/READY.
+- Client: состояния экранов по stage в ROUNDUPDATE/START (LobbyScreen, GameScreen).
+- Таймеры: ScheduledExecutorService.schedule(endLobby/round, duration, SECONDS).
+
+
+## Ограничения по времени
+
+Фокус на серверной логике (GameState/GameServer ~70% усилий), UI - простые VBox/HBox переключения по stage. Игнорировать анимации/красивые таблицы (Markdown ListView). Тестировать 2 клиента + 1 сервер локально. Нет мультирумам - 1 глобальная roomId=1.
+
