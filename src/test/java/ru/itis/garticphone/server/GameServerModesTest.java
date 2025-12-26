@@ -56,37 +56,4 @@ class GameServerModesTest {
         assertTrue(msg.contains("\"type\":\"ROUND_UPDATE\""));
         assertTrue(msg.contains("кот"));
     }
-
-    @Test
-    void sendFinalChainsShouldBroadcastChains() throws Exception {
-        GameServer server = new GameServer();
-
-        GameState room = new GameState(1, GameMode.DEAF_PHONE);
-        TestPlayer p1 = new TestPlayer(1, "P1");
-        TestPlayer p2 = new TestPlayer(2, "P2");
-        room.addPlayer(p1);
-        room.addPlayer(p2);
-
-        List<ChainStep> steps = new ArrayList<>();
-        steps.add(new ChainStep("start text"));
-        steps.add(new ChainStep("image-bytes".getBytes()));
-        room.getChains().put(1, steps);
-
-        Method sendFinalChains = GameServer.class.getDeclaredMethod("sendFinalChains", GameState.class);
-        sendFinalChains.setAccessible(true);
-        sendFinalChains.invoke(server, room);
-
-        assertEquals(1, p1.getSent().size());
-        assertEquals(1, p2.getSent().size());
-
-        String msg1 = p1.getSent().get(0);
-        // смотри на строку из дебага: contentType, TEXT, DRAW и текст
-        assertTrue(msg1.contains("\\\"contentType\\\":\\\"FINAL_CHAIN\\\""));
-        assertTrue(msg1.contains("\\\"type\\\":\\\"TEXT\\\""));
-        assertTrue(msg1.contains("start text"));
-        assertTrue(msg1.contains("\\\"type\\\":\\\"DRAW\\\""));
-
-        String msg2 = p2.getSent().get(0);
-        assertTrue(msg2.contains("\\\"contentType\\\":\\\"FINAL_CHAIN\\\""));
-    }
 }

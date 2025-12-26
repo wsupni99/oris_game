@@ -192,18 +192,18 @@ public class GameServer {
         for (Player p : room.getPlayers()) {
             if (!first) payload.append(",");
             first = false;
-            payload.append("\"").append(escape(p.getName())).append("\":");
+            payload.append("\"").append(Message.escape(p.getName())).append("\":");
             payload.append(room.getReadyPlayers().contains(p.getId()));
         }
 
-        Message msg = new Message(MessageType.READY, room.getRoomId(), 0, "SERVER",
-                "{" + payload + "}");
-        String json = toJson(msg);
+        Message msg = new Message(MessageType.PLAYER_STATUS, room.getRoomId(), 0, "SERVER",
+                "{\"players\": {" + payload + "}}");
 
         for (Player p : room.getPlayers()) {
-            p.sendLine(json);
+            p.send(msg);
         }
     }
+
 
 
     private void handleChat(Player from, Message message) {
@@ -455,7 +455,7 @@ public class GameServer {
             first = false;
             if (step.isTextStep()) {
                 chainJson.append("{\"type\":\"TEXT\",\"value\":\"")
-                        .append(escape(step.getText()))
+                        .append(Message.escape(step.getText()))
                         .append("\"}");
             } else {
                 String enc = java.util.Base64.getEncoder()
@@ -470,15 +470,14 @@ public class GameServer {
         String payload = "{\"contentType\":\"FINAL_CHAIN\",\"chain\":" + chainJson + "}";
 
         Message chainMsg = new Message(
-                MessageType.ROUND_UPDATE,
+                MessageType.FINAL_CHAIN,
                 roomId,
                 0,
                 "SERVER",
                 payload
         );
-        String json = toJson(chainMsg);
         for (Player p : room.getPlayers()) {
-            p.sendLine(json);
+            p.send(chainMsg);
         }
     }
 
