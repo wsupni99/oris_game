@@ -3,17 +3,12 @@ package ru.itis.garticphone.server;
 import org.junit.jupiter.api.Test;
 import ru.itis.garticphone.common.Message;
 import ru.itis.garticphone.common.MessageType;
-
-import java.lang.reflect.Method;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class GameServerJsonTest {
 
     @Test
-    void toJsonAndParseMessageShouldBeConsistent() throws Exception {
-        GameServer server = new GameServer();
-
+    void toJsonAndParseMessageShouldBeConsistent() {
         Message original = new Message(
                 MessageType.CHAT,
                 5,
@@ -23,7 +18,6 @@ class GameServerJsonTest {
         );
 
         String json = Message.toJson(original);
-
         Message parsed = Message.parse(json);
 
         assertNotNull(parsed);
@@ -42,7 +36,7 @@ class GameServerJsonTest {
     }
 
     @Test
-    void toJsonShouldEscapeQuotesAndBackslashes() throws Exception {
+    void toJsonShouldEscapeQuotesAndBackslashes() {
         String trickyName = "Da\"nya\\Test";
         String trickyPayload = "{ \"k\":\"v\\\\\" }";
 

@@ -7,27 +7,27 @@ import ru.itis.garticphone.common.MessageType;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class GameServerChatTest {
 
     private static class TestPlayer extends Player {
-        private final List<String> sent = new ArrayList<>();
+        private final List<Message> sent = new ArrayList<>();
 
         public TestPlayer(int id, String name) {
             super(id, name);
         }
 
         @Override
-        public void sendLine(String line) {
-            sent.add(line);
+        public void send(Message message) {
+            sent.add(message);
         }
 
-        public List<String> getSent() {
+        public List<Message> getSent() {
             return sent;
         }
     }
@@ -35,39 +35,43 @@ class GameServerChatTest {
     @Test
     @SuppressWarnings("unchecked")
     void chatShouldBroadcastWithinRoom() throws Exception {
-        GameServer server = new GameServer();
+        ScheduledExecutorService roundScheduler = Executors.newScheduledThreadPool(1);
+        GameService service = new GameService(roundScheduler);
+
+        Field roomsField = GameService.class.getDeclaredField("rooms");
+        roomsField.setAccessible(true);
+        Map<Integer, GameState> rooms = (Map<Integer, GameState>) roomsField.get(service);
 
         GameState room = new GameState(1, GameMode.GUESS_DRAWING);
         TestPlayer p1 = new TestPlayer(1, "P1");
         TestPlayer p2 = new TestPlayer(2, "P2");
+        TestPlayer p3 = new TestPlayer(3, "P3");
         room.addPlayer(p1);
         room.addPlayer(p2);
-
-        Field roomsField = GameServer.class.getDeclaredField("rooms");
-        roomsField.setAccessible(true);
-        Map<Integer, GameState> rooms =
-                (Map<Integer, GameState>) roomsField.get(server);
+        room.addPlayer(p3);
         rooms.put(1, room);
 
-        Message msg = new Message(
+        Message chat = new Message(
                 MessageType.CHAT,
                 1,
-                1,
-                "P1",
-                "hi"
+                p1.getId(),
+                p1.getName(),
+                "hello"
         );
 
-        Method handleChat = GameServer.class.getDeclaredMethod(
-                "handleChat",
-                ru.itis.garticphone.client.Player.class,
-                Message.class
-        );
+        Method handleChat = GameService.class
+                .getDeclaredMethod("handleChat", Player.class, Message.class);
         handleChat.setAccessible(true);
-        handleChat.invoke(server, p1, msg);
+        handleChat.invoke(service, p1, chat);
 
         assertEquals(1, p1.getSent().size());
         assertEquals(1, p2.getSent().size());
-        assertTrue(p1.getSent().get(0).contains("\"payload\":\"hi\""));
-        assertTrue(p2.getSent().get(0).contains("\"payload\":\"hi\""));
+        assertEquals(1, p3.getSent().size());
+
+        Message msg1 = p1.getSent().get(0);
+        assertEquals(MessageType.CHAT, msg1.getType());
+        assertEquals(1, msg1.getRoomId());
+        assertEquals("P1", msg1.getPlayerName());
+        assertEquals("hello", msg1.getPayload());
     }
 }

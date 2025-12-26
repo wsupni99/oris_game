@@ -85,4 +85,8 @@ public class Player {
     public boolean isDisconnected() {
         return state == PlayerState.DISCONNECTED;
     }
+
+    public boolean isConnected() {
+        return state == PlayerState.CONNECTED;
+    }
 }

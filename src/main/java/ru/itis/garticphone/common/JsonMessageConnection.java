@@ -45,4 +45,9 @@ public class JsonMessageConnection implements Closeable {
         }
         socket.close();
     }
+
+    public boolean isOpen() {
+        return !socket.isClosed() && socket.isConnected();
+    }
+
 }
