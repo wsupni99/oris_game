@@ -4,29 +4,30 @@ import java.io.*;
 import java.net.Socket;
 
 public class JsonMessageConnection implements Closeable {
-
     private final Socket socket;
-    private final ObjectInputStream in;
-    private final ObjectOutputStream out;
+    private final BufferedReader reader;
+    private final BufferedWriter writer;
 
     public JsonMessageConnection(Socket socket) throws IOException {
         this.socket = socket;
-        this.out = new ObjectOutputStream(socket.getOutputStream());
-        this.out.flush();
-        this.in = new ObjectInputStream(socket.getInputStream());
+        this.writer = new BufferedWriter(
+                new OutputStreamWriter(socket.getOutputStream())
+        );
+        this.reader = new BufferedReader(
+                new InputStreamReader(socket.getInputStream())
+        );
     }
 
     public void send(Message message) throws IOException {
-        out.writeObject(Message.toJson(message));
-        out.flush();
+        writer.write(Message.toJson(message));
+        writer.newLine();
+        writer.flush();
     }
 
-    public Message receive() throws IOException, ClassNotFoundException {
-        Object obj = in.readObject();
-        if (!(obj instanceof String)) {
-            throw new IOException("Unexpected object type: " + obj.getClass());
-        }
-        return Message.parse((String) obj);
+    public Message receive() throws IOException {
+        String line = reader.readLine();
+        if (line == null) return null;
+        return Message.parse(line);
     }
 
     public Socket getSocket() {
@@ -36,11 +37,11 @@ public class JsonMessageConnection implements Closeable {
     @Override
     public void close() throws IOException {
         try {
-            in.close();
+            reader.close();
         } catch (IOException ignored) {
         }
         try {
-            out.close();
+            writer.close();
         } catch (IOException ignored) {
         }
         socket.close();

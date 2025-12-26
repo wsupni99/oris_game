@@ -9,7 +9,7 @@ public class Player {
     private final int id;
     private String name;
     private final JsonMessageConnection connection;
-    private PlayerState state = PlayerState.IN_LOBBY;
+    private PlayerState state;
 
 
     public Player(int id, String name, Socket socket) throws IOException {
